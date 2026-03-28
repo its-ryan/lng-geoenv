@@ -1,0 +1,37 @@
+id: lng-geoenv
+name: LNG Geographic Environment
+description: |
+  Multi-agent LNG supply chain optimization with demand forecasting,
+  route management, and dynamic reward computation. Three scenarios:
+  stable (low volatility), volatile (high price swings), and war (extreme stress).
+
+entry_point: inference.py
+
+interface:
+  observation: dict
+  action: dict
+  reward: float
+
+tasks:
+  - id: stable
+    description: "Stable market scenario with low volatility and minimal disruptions"
+    max_steps: 10
+    seed: 42
+
+  - id: volatile
+    description: "Volatile market scenario with high price swings and frequent shocks"
+    max_steps: 10
+    seed: 42
+
+  - id: war
+    description: "Extreme stress scenario with high risk, blocked routes, and disruptions"
+    max_steps: 10
+    seed: 42
+
+grader:
+  type: episode
+  metric: normalized_score
+
+runtime:
+  python_version: "3.12"
+  entry: python inference.py
