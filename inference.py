@@ -1,5 +1,4 @@
 import json
-import random
 import numpy as np
 from src.lng_geoenv.env import LNGEnv
 from src.lng_geoenv.tasks import get_task_config
@@ -108,17 +107,28 @@ def evaluate_episode(history):
         }
 
     total_reward = sum(h.get("reward", 0.0) for h in history)
+    total_cost = sum(h["metrics"].get("cost", 0.0) for h in history)
+    total_shortage = sum(h["metrics"].get("shortage", 0.0) for h in history)
+    total_risk = sum(h["metrics"].get("risk", 0.0) for h in history)
     episode_count = len(history)
     avg_reward = total_reward / max(episode_count, 1)
 
     # Rewards are already normalized [0, 1], so average is final score
     final_score = np.clip(avg_reward, 0.0, 1.0)
-
+    cost_score = 1 / (1 + total_cost)
+    shortage_score = 1 / (1 + total_shortage)
+    risk_score = 1 / (1 + total_risk)
+    
     return {
         "total_reward": total_reward,
         "avg_reward": avg_reward,
         "final_score": final_score,
         "steps": episode_count,
+        "breakdown": {
+            "cost": cost_score,
+            "shortage": shortage_score,
+            "risk": risk_score
+        }
     }
 
 
@@ -166,8 +176,13 @@ def run_task(task_name, max_steps=10, seed=42):
 
         state, env_reward, env_done, env_info = env.step(action)
 
-        # env_reward is already normalized [0, 1] by RewardNormalizer in env.step()
-        history.append({"state": state, "action": action, "reward": env_reward})
+        # env_reward is normalized [0, 1] by RewardNormalizer in env.step()
+        history.append({
+            "state": state,
+            "action": action,
+            "reward": env_reward,
+            "metrics": env_info.get("metrics", {})
+        })
 
         if DEBUG and ((t + 1) % 5 == 0 or t == max_steps - 1):
             storage_level = state.get("storage", {}).get("level", 0.0)
@@ -195,7 +210,8 @@ def run_task(task_name, max_steps=10, seed=42):
 
     return {
         "task": task_name,
-        "final_score": evaluation["final_score"],
+        "score": evaluation["final_score"],
+        "breakdown": evaluation["breakdown"],
         "total_reward": evaluation["total_reward"],
         "avg_reward": evaluation["avg_reward"],
         "steps": evaluation["steps"],
@@ -221,7 +237,7 @@ def run_all_tasks(max_steps=10, seed=42):
         print("=" * 60)
 
         avg_score = (
-            sum(r["final_score"] for r in results) / len(results) if results else 0.0
+            sum(r["score"] for r in results) / len(results) if results else 0.0
         )
         avg_reward = (
             sum(r["total_reward"] for r in results) / len(results) if results else 0.0
@@ -229,7 +245,7 @@ def run_all_tasks(max_steps=10, seed=42):
 
         for result in results:
             print(
-                f"{result['task'].upper():10} | Score: {result['final_score']:.4f} | "
+                f"{result['task'].upper():10} | Score: {result['score']:.4f} | "
                 f"Reward: {result['total_reward']:.4f}"
             )
 
@@ -244,7 +260,7 @@ if __name__ == "__main__":
     results = run_all_tasks(max_steps=10, seed=42)
 
     avg_score = (
-        sum(r["final_score"] for r in results) / len(results) if results else 0.0
+        sum(r["score"] for r in results) / len(results) if results else 0.0
     )
 
     output = {
