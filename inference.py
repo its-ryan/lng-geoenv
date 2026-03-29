@@ -110,21 +110,30 @@ def evaluate_episode(history):
     total_cost = sum(h["metrics"].get("cost", 0.0) for h in history)
     total_shortage = sum(h["metrics"].get("shortage", 0.0) for h in history)
     total_risk = sum(h["metrics"].get("risk", 0.0) for h in history)
+
     episode_count = len(history)
     avg_reward = total_reward / max(episode_count, 1)
-
     final_score = np.clip(avg_reward, 0.0, 1.0)
-    total_penalty = total_cost + total_shortage + total_risk + 1e-8  # avoid div by zero
+
+    # --- Proportional Breakdown ---
+    total_penalty = total_cost + total_shortage + total_risk + 1e-8
 
     cost_score = total_cost / total_penalty
     shortage_score = total_shortage / total_penalty
     risk_score = total_risk / total_penalty
-    
+
+    # --- Decision Quality ---
     total_decision_score = sum(h.get("decision_score", 0.0) for h in history)
-    # Normalize to [0,1]
     decision_quality = 1 / (1 + np.exp(-total_decision_score / max(1, len(history))))
-    
-    # --- Generate Explanation ---
+
+    # --- Anticipation ---
+    total_anticipation = sum(h.get("anticipation_score", 0.0) for h in history)
+    anticipation = 1 / (1 + np.exp(-total_anticipation / max(1, len(history))))
+
+    # --- Risk Adjusted Score ---
+    risk_adjusted_score = final_score * (1 - risk_score)
+
+    # --- Explanation ---
     explanation_parts = []
 
     if shortage_score > 0.5:
@@ -141,22 +150,28 @@ def evaluate_episode(history):
     elif decision_quality < 0.4:
         explanation_parts.append("Agent decisions were often suboptimal.")
 
+    if anticipation > 0.7:
+        explanation_parts.append("Agent showed strong anticipatory behavior.")
+    elif anticipation < 0.4:
+        explanation_parts.append("Agent reacted late to demand changes.")
+
     explanation = " ".join(explanation_parts) if explanation_parts else "Balanced performance across factors."
-    
+
     return {
         "total_reward": total_reward,
         "avg_reward": avg_reward,
         "final_score": final_score,
+        "risk_adjusted_score": float(risk_adjusted_score),
         "steps": episode_count,
         "breakdown": {
             "cost": cost_score,
             "shortage": shortage_score,
             "risk": risk_score,
-            "decision_quality": float(decision_quality)
+            "decision_quality": float(decision_quality),
+            "anticipation": float(anticipation)
         },
         "explanation": explanation
     }
-
 
 def run_task(task_name, max_steps=10, seed=42):
     task_config = get_task_config(task_name)
@@ -190,6 +205,7 @@ def run_task(task_name, max_steps=10, seed=42):
         print(f"  Price: ${state.get('price', 100.0):.2f}")
         print(f"  Budget: ${state.get('budget', 500.0):.2f}")
         print()
+    prev_storage = state.get("storage", {}).get("level", 0.0)
 
     for t in range(max_steps):
         time_step = state.get("time_step", t)
@@ -197,31 +213,34 @@ def run_task(task_name, max_steps=10, seed=42):
         demand = demand_forecast[min(time_step, len(demand_forecast) - 1)]
 
         action = choose_action(state, demand)
-
         validate_action(action)
+
+        # --- Anticipation Evaluation ---
+        anticipation_score = 0.0
+        expected_shortage = prev_storage < demand
+        action_type = action.get("type")
+
+        if expected_shortage:
+            if action_type in ["reroute", "release", "hedge"]:
+                anticipation_score += 1.0
+            elif action_type == "wait":
+                anticipation_score -= 1.0
 
         state, env_reward, env_done, env_info = env.step(action)
 
         # --- Decision Quality Evaluation ---
         decision_score = 0.0
-
         storage_level = state.get("storage", {}).get("level", 0.0)
-        blocked_routes = state.get("blocked_routes", [])
-        action_type = action.get("type")
 
-        # Good: rerouting blocked ships
         if action_type == "reroute":
             decision_score += 1.0
 
-        # Good: releasing when low storage
         if action_type == "release" and storage_level < demand:
             decision_score += 1.0
 
-        # Good: hedging when price high
         if action_type == "hedge" and state.get("price", 0) > 120:
             decision_score += 0.5
 
-        # Bad: waiting during shortage
         if action_type == "wait" and storage_level < demand:
             decision_score -= 1.0
 
@@ -230,17 +249,12 @@ def run_task(task_name, max_steps=10, seed=42):
             "action": action,
             "reward": env_reward,
             "metrics": env_info.get("metrics", {}),
-            "decision_score": decision_score
+            "decision_score": decision_score,
+            "anticipation_score": anticipation_score
         })
 
-        if DEBUG and ((t + 1) % 5 == 0 or t == max_steps - 1):
-            storage_level = state.get("storage", {}).get("level", 0.0)
-            print(f"Step {t + 1}:")
-            print(f"  Action: {action['type']}")
-            print(f"  Storage: {storage_level:.1f}")
-            print(f"  Demand: {demand:.1f}")
-            print(f"  Reward: {env_reward:.4f}")
-            print()
+        # update for next step
+        prev_storage = state.get("storage", {}).get("level", 0.0)
 
         if env_done:
             break
@@ -260,6 +274,7 @@ def run_task(task_name, max_steps=10, seed=42):
     return {
         "task": task_name,
         "score": evaluation["final_score"],
+        "risk_adjusted_score": evaluation["risk_adjusted_score"],
         "breakdown": evaluation["breakdown"],
         "explanation": evaluation["explanation"],
         "total_reward": evaluation["total_reward"],
