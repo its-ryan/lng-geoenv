@@ -74,10 +74,10 @@ def run_with_llm_agent():
 
     print(f"\n🌍 Environment initialized")
     print(
-        f"  Initial Storage: {state['storage']['level']:.1f} / {state['storage']['capacity']:.1f} LNG"
+        f"  Initial Storage: {state.storage.level:.1f} / {state.storage.capacity:.1f} LNG"
     )
-    print(f"  Initial Demand: {state['demand']:.1f} LNG")
-    print(f"  Initial Budget: ${state['budget']:.2f}")
+    print(f"  Initial Demand: {state.demand:.1f} LNG")
+    print(f"  Initial Budget: ${state.budget:.2f}")
 
     # Tracking
     episode_reward = 0.0
@@ -99,7 +99,7 @@ def run_with_llm_agent():
         print("-" * 80)
 
         # Get action from LLM agent
-        action = agent.choose_action(state)
+        action = agent.choose_action(state.model_dump())
 
         print(f"\n🤖 Agent Decision:")
         print(f"  Action: {action['action_type']}")
@@ -110,19 +110,19 @@ def run_with_llm_agent():
         state, reward, done, info = env.step(action)
 
         print(f"\n📊 Step Results:")
-        print(f"  Reward: {reward:.4f}")
+        print(f"  Reward: {reward.value:.4f}")
         print(
-            f"  Storage: {state['storage']['level']:.1f} / {state['storage']['capacity']:.1f} LNG"
+            f"  Storage: {state.storage.level:.1f} / {state.storage.capacity:.1f} LNG"
         )
-        print(f"  Demand: {state['demand']:.1f} LNG")
-        print(f"  Price: ${state['price']:.2f}")
-        print(f"  Budget: ${state['budget']:.2f}")
+        print(f"  Demand: {state.demand:.1f} LNG")
+        print(f"  Price: ${state.price:.2f}")
+        print(f"  Budget: ${state.budget:.2f}")
 
         # Track metrics
-        episode_reward += reward
+        episode_reward += reward.value
         episode_info["steps"] += 1
         episode_info["actions"].append(action["action_type"])
-        episode_info["rewards"].append(float(reward))
+        episode_info["rewards"].append(float(reward.value))
 
         if info.get("metrics"):
             metrics = info["metrics"]
@@ -149,14 +149,14 @@ def run_with_llm_agent():
     print("=" * 80)
 
     avg_reward = episode_reward / max(1, episode_info["steps"])
-    final_storage = state["storage"]["level"]
+    final_storage = state.storage.level
 
     print(f"\n🏆 Overall Performance:")
     print(f"  Total Reward: {episode_reward:.4f}")
     print(f"  Average Reward per Step: {avg_reward:.4f}")
     print(f"  Total Steps: {episode_info['steps']}")
     print(f"  Final Storage: {final_storage:.1f} LNG")
-    print(f"  Final Budget: ${state['budget']:.2f}")
+    print(f"  Final Budget: ${state.budget:.2f}")
 
     print(f"\n📊 Aggregated Metrics:")
     print(f"  Total Cost: {episode_info['total_cost']:.2f}")
@@ -187,7 +187,7 @@ def run_with_llm_agent():
             "average_reward": float(avg_reward),
             "steps_completed": episode_info["steps"],
             "final_storage": float(final_storage),
-            "final_budget": float(state["budget"]),
+            "final_budget": float(state.budget),
         },
         "metrics": {
             "total_cost": float(episode_info["total_cost"]),
@@ -229,9 +229,9 @@ def run_debug():
         state, reward, done, info = env.step(action)
 
         print(f"\nStep {step}")
-        print("Demand:", round(state["demand"], 2))
-        print("Storage:", round(state["storage"]["level"], 2))
-        print("Reward:", round(reward, 4))
+        print("Demand:", round(state.demand, 2))
+        print("Storage:", round(state.storage.level, 2))
+        print("Reward:", round(reward.value, 4))
         print("Metrics:", info.get("metrics", {}))
 
         if done:

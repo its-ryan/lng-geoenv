@@ -1,16 +1,20 @@
 from .env import LNGEnv
 from .tasks import get_task_config
 from .agent import choose_action
+from .models import Action
 from .evaluator import evaluate_episode
 
 # Debug flag: Set to True for verbose logging
 DEBUG = False
 
-def validate_action(action):
+
+def validate_action(action: Action):
     valid_types = ["reroute", "store", "release", "hedge", "wait"]
-    assert action["type"] in valid_types, f"Invalid action type: {action['type']}"
-    assert isinstance(action["parameters"], dict), "Parameters must be dict"
+    assert action.action_type in valid_types, (
+        f"Invalid action type: {action.action_type}"
+    )
     return True
+
 
 def run_task(task_name, max_steps=10, seed=42):
     task_config = get_task_config(task_name)
@@ -28,7 +32,7 @@ def run_task(task_name, max_steps=10, seed=42):
         },
     }
 
-    env = LNGEnv(config)
+    env = LNGEnv(config=config, task_config=task_config)
     state = env.reset(seed=seed)
 
     history = []
@@ -38,26 +42,32 @@ def run_task(task_name, max_steps=10, seed=42):
         print(f"Task: {task_name.upper()}")
         print(f"{'=' * 60}")
         print(f"Initial State:")
-        print(
-            f"  Storage: {state.get('storage', {}).get('level', 0.0):.1f} / {state.get('storage', {}).get('capacity', 200.0):.1f}"
-        )
-        print(f"  Price: ${state.get('price', 100.0):.2f}")
-        print(f"  Budget: ${state.get('budget', 500.0):.2f}")
+        print(f"  Storage: {state.storage.level:.1f} / {state.storage.capacity:.1f}")
+        print(f"  Price: ${state.price:.2f}")
+        print(f"  Budget: ${state.budget:.2f}")
         print()
-    prev_storage = state.get("storage", {}).get("level", 0.0)
+    prev_storage = state.storage.level
 
     for t in range(max_steps):
-        time_step = state.get("time_step", t)
-        demand_forecast = state.get("demand_forecast", [0.0] * max_steps)
+        time_step = state.time_step
+        demand_forecast = state.demand_forecast
         demand = demand_forecast[min(time_step, len(demand_forecast) - 1)]
 
-        action = choose_action(state, demand)
+        raw_action = choose_action(state.model_dump(), demand)
+        action = Action(
+            **{
+                "action_type": raw_action.get("type"),
+                "amount": raw_action.get("parameters", {}).get("amount", 0.0),
+                "ship_id": raw_action.get("parameters", {}).get("ship_id"),
+                "new_route": raw_action.get("parameters", {}).get("new_route"),
+            }
+        )
         validate_action(action)
 
         # --- Anticipation Evaluation ---
         anticipation_score = 0.0
-        expected_shortage = (prev_storage < demand * 1.2)
-        action_type = action.get("type")
+        expected_shortage = prev_storage < demand * 1.2
+        action_type = action.action_type
 
         if expected_shortage:
             if action_type in ["reroute", "release", "hedge"]:
@@ -71,15 +81,13 @@ def run_task(task_name, max_steps=10, seed=42):
 
         decision_score = 0.0
 
-        storage_level = state.get("storage", {}).get("level", 0.0)
-        blocked_routes = state.get("blocked_routes", [])
-        ships = state.get("ships", [])
-        action_type = action.get("type")
+        storage_level = state.storage.level
+        blocked_routes = state.blocked_routes
+        ships = state.ships
+        action_type = action.action_type
 
         # Detect if any ship is actually on blocked route
-        ship_on_blocked_route = any(
-            ship.get("route") in blocked_routes for ship in ships
-        )
+        ship_on_blocked_route = any(ship.route in blocked_routes for ship in ships)
 
         # --- Decision Logic ---
 
@@ -102,20 +110,22 @@ def run_task(task_name, max_steps=10, seed=42):
         if action_type == "release" and expected_shortage:
             decision_score += 1.0
 
-        if action_type == "hedge" and state.get("price", 0) > 120:
+        if action_type == "hedge" and state.price > 120:
             decision_score += 0.5
 
-        history.append({
-            "state": state,
-            "action": action,
-            "reward": env_reward,
-            "metrics": env_info.get("metrics", {}),
-            "decision_score": decision_score,
-            "anticipation_score": anticipation_score
-        })
+        history.append(
+            {
+                "state": state,
+                "action": action.model_dump(),
+                "reward": env_reward.value,
+                "metrics": env_info.get("metrics", {}),
+                "decision_score": decision_score,
+                "anticipation_score": anticipation_score,
+            }
+        )
 
         # update for next step
-        prev_storage = state.get("storage", {}).get("level", 0.0)
+        prev_storage = state.storage.level
 
         if env_done:
             break

@@ -24,7 +24,7 @@ class GeminiAgentConfig:
     def __init__(self):
         self.api_key = self._get_api_key()
         self.model_name = os.getenv("MODEL_NAME", "gemini-2.5-flash")
-        self.temperature = float(os.getenv("AGENT_TEMPERATURE", "0.7"))
+        self.temperature = float(os.getenv("AGENT_TEMPERATURE", "0.0"))
         self.max_tokens = int(os.getenv("AGENT_MAX_TOKENS", "500"))
         self.timeout = int(os.getenv("AGENT_TIMEOUT", "30"))
 
@@ -677,6 +677,8 @@ RESPOND ONLY WITH VALID JSON (no other text):
         )
 
         return action
+
+
 def choose_action(state, demand):
     storage_level = state.get("storage", {}).get("level", 0.0)
     storage_capacity = state.get("storage", {}).get("capacity", 200.0)

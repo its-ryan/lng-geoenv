@@ -10,7 +10,7 @@ config = {
         "alpha": 2.0,
         "beta": 1.0,
         "gamma": 1.0,
-    }
+    },
 }
 
 
@@ -48,4 +48,4 @@ def test_storage_bounds():
         action = {"type": "store", "parameters": {"amount": 500}}
         state, _, _, _ = env.step(action)
 
-        assert state["storage"]["level"] <= state["storage"]["capacity"]
+        assert state.storage.level <= state.storage.capacity
